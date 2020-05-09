@@ -38,6 +38,11 @@
 		// ArcGIS Server Oauth2-Endpoint
 		public virtual string Oauth2Endpoint { get; set; }
 
+		// ArcGIS standard token based auth url
+		public virtual string tokenUrl { get; set; }
+
+		public virtual string referer { get; set; }
+
 	}
 
 }

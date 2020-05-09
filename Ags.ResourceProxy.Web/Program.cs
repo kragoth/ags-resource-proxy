@@ -10,6 +10,12 @@ using Microsoft.Extensions.Logging;
 
 namespace Ags.ResourceProxy.Web {
 	public class Program {
+
+		public static IConfiguration ProxyConfiguration { get; } = new ConfigurationBuilder()
+			.SetBasePath(Directory.GetCurrentDirectory())
+			.AddJsonFile("proxy.config.json")
+			.Build();
+
 		public static void Main(string[] args) {
 			CreateWebHostBuilder(args).Build().Run();
 		}

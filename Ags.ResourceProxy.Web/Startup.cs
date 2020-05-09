@@ -1,16 +1,16 @@
-using System;
-using System.Linq;
-using System.Net.Http;
 using Ags.ResourceProxy.Core;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using System;
+using System.Linq;
+using System.Net.Http;
 
-namespace Ags.ResourceProxy.Web {
+namespace Ags.ResourceProxy.Web
+{
 	public class Startup {
 		public Startup(IConfiguration configuration) {
 			Configuration = configuration;
@@ -21,27 +21,35 @@ namespace Ags.ResourceProxy.Web {
 		// This method gets called by the runtime. Use this method to add services to the container.
 		public void ConfigureServices(IServiceCollection services) {
 
-			services.AddSingleton<IProxyConfigService, ProxyConfigService>((a) => new ProxyConfigService(a.GetService<IHostingEnvironment>(), "proxy.config.json"));
+			services.AddMemoryCache();
+
+			var proxyConfig = Program.ProxyConfiguration.Get<ProxyConfig>();
+			var proxyConfigService = new ProxyConfigService(proxyConfig);
+			services.AddSingleton<IProxyConfigService, ProxyConfigService>((a) => proxyConfigService);
 			services.AddSingleton<IProxyService, ProxyService>();
 
-			var serviceProvider = services.BuildServiceProvider();
-
-			var agsProxyConfig = serviceProvider.GetService<IProxyConfigService>();
-			agsProxyConfig.Config.ServerUrls.ToList().ForEach(su => {
+			proxyConfig.ServerUrls.ToList().ForEach(su => {
 				services.AddHttpClient(su.Url)
 					.ConfigurePrimaryHttpMessageHandler(h => {
 						return new HttpClientHandler {
 							AllowAutoRedirect = false,
-							Credentials = agsProxyConfig.GetCredentials(agsProxyConfig.GetProxyServerUrlConfig((su.Url)))
+							Credentials = proxyConfigService.GetCredentials(proxyConfigService.GetProxyServerUrlConfig((su.Url)))
 						};
 					});
 			});
 
-			services.AddMvc().SetCompatibilityVersion(CompatibilityVersion.Version_2_1);
+			// If using IIS:
+			services.Configure<IISServerOptions>(options =>
+			{
+				options.AllowSynchronousIO = true;
+			});
+
+			// services.AddMvc().SetCompatibilityVersion(CompatibilityVersion.Version_2_1);
+
 		}
 
 		// This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-		public void Configure(IApplicationBuilder app, IHostingEnvironment env) {
+		public void Configure(IApplicationBuilder app, IWebHostEnvironment env) {
 			if (env.IsDevelopment()) {
 				app.UseDeveloperExceptionPage();
 			} else {
@@ -64,7 +72,8 @@ namespace Ags.ResourceProxy.Web {
 					app.ApplicationServices.GetService<IMemoryCache>())
 				);
 
-			app.UseMvc();
+			// app.UseMvc();
+			app.UseRouting();
 		}
 	}
 }

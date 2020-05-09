@@ -72,6 +72,18 @@ namespace Ags.ResourceProxy.Core {
 			};
 		}
 
+		public List<KeyValuePair<string, string>> GetArcGISTokenFormData(ServerUrl su, string proxyReferrer)
+		{
+			return new List<KeyValuePair<string, string>> {
+				new KeyValuePair<string, string>("username", su.Username),
+				new KeyValuePair<string, string>("password", su.Password),
+				new KeyValuePair<string, string>("referer", proxyReferrer),
+				new KeyValuePair<string, string>("expiration", "60"),
+				new KeyValuePair<string, string>("request", "getToken"),
+				new KeyValuePair<string, string>("f", "json")
+			};
+		}
+
 		/// <summary>
 		/// Determines if the referring URL is allowed to use the proxy.
 		/// </summary>

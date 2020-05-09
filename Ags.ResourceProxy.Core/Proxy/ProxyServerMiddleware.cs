@@ -11,7 +11,11 @@ using Microsoft.Extensions.Caching.Memory;
 namespace Ags.ResourceProxy.Core {
 
 	public class ProxyServerMiddleware {
-        private const string JsonExpirationKey = "expires_in";
+		private readonly DateTime EpochDate = new DateTime(1970, 1, 1);
+
+		private const string ArcGisJsonTokenKey = "token";
+		private const string ArcGisJsonExpirationKey = "expires";
+		private const string JsonExpirationKey = "expires_in";
         private const string JsonTokenKey = "access_token";
 
 		private readonly IMemoryCache _cache;
@@ -57,11 +61,12 @@ namespace Ags.ResourceProxy.Core {
 			HttpResponseMessage response = null;
 
 			if (serverUrlConfig != null) {
+				var isTokenLogin = !String.IsNullOrEmpty(serverUrlConfig?.Username) && !String.IsNullOrEmpty(serverUrlConfig?.tokenUrl);
 				var isAppLogin = !String.IsNullOrEmpty(serverUrlConfig?.ClientId) && !String.IsNullOrEmpty(serverUrlConfig?.ClientSecret);
 				var isUserLogin = !String.IsNullOrEmpty(serverUrlConfig?.Username) && !String.IsNullOrEmpty(serverUrlConfig?.Password);
 				var httpClientName = serverUrlConfig?.Url;
 
-				if (isAppLogin) {
+				if (isAppLogin || isTokenLogin) {
 					var serverToken = await CacheTryGetServerToken(serverUrlConfig, httpClientName);
 					response = await _proxyService.ForwardRequestToServer(context.Request, proxiedUrl, httpClientName, serverToken);
 				} else if (isUserLogin) {
@@ -86,29 +91,51 @@ namespace Ags.ResourceProxy.Core {
 			JObject o;
 
 			if (!_cache.TryGetValue(tokenCacheKey, out string serverTokenJson) || killCache) {
+				var requestTime = new DateTime();
 				// Key not in cache, so get token.
 				serverTokenJson = await GetAppToken(su, clientName);
 				o = JObject.Parse(serverTokenJson);
-				// Set expiration based on value returned with access token
-				_cache.Set(tokenCacheKey, serverTokenJson, TimeSpan.FromSeconds(Convert.ToDouble(o[JsonExpirationKey])));
+
+				if (string.IsNullOrEmpty(su.tokenUrl))
+				{
+					// Set expiration based on value returned with access token
+					_cache.Set(tokenCacheKey, serverTokenJson, TimeSpan.FromSeconds(Convert.ToDouble(o[JsonExpirationKey])));
+				} else
+				{
+					
+					var offset = TimeSpan.FromMilliseconds(Convert.ToDouble(o[ArcGisJsonExpirationKey]));
+					var expiry = EpochDate + offset;
+					var timespan = expiry - requestTime;
+					// Set expiration based on value returned with access token
+					_cache.Set(tokenCacheKey, serverTokenJson, timespan);
+				}
 			} else
 			{
 				o = JObject.Parse(serverTokenJson);
 			}
 
-			return (string)o[JsonTokenKey];
+			return string.IsNullOrEmpty(su.tokenUrl) ? (string)o[JsonTokenKey] : (string)o[ArcGisJsonTokenKey];
 		}
 
 		private async Task<string> GetAppToken(ServerUrl su, string clientName) {
 
-			if (string.IsNullOrEmpty(su.Oauth2Endpoint)) {
-				throw new ArgumentNullException("Oauth2Endpoint");
+			if (string.IsNullOrEmpty(su.Oauth2Endpoint) && string.IsNullOrEmpty(su.tokenUrl)) {
+				throw new ArgumentNullException("Oauth2Endpoint | TokenUrl");
 			}
 
-			var formData = _proxyConfigService.GetOAuth2FormData(su, _proxyReferrer);
+			if (string.IsNullOrEmpty(su.Oauth2Endpoint))
+			{
+				var formData = _proxyConfigService.GetArcGISTokenFormData(su, _proxyReferrer ?? su.referer);
 
-			var tokenJson = await _proxyService.RequestTokenJson(su.Oauth2Endpoint, formData, clientName);
-			return tokenJson;
+				var tokenJson = await _proxyService.RequestTokenJson(su.tokenUrl, formData, clientName);
+				return tokenJson;
+			} else 
+			{
+				var formData = _proxyConfigService.GetOAuth2FormData(su, _proxyReferrer);
+
+				var tokenJson = await _proxyService.RequestTokenJson(su.Oauth2Endpoint, formData, clientName);
+				return tokenJson;
+			}
 		}
 
 		private async Task CopyProxyHttpResponse(HttpContext context, HttpResponseMessage responseMessage) {

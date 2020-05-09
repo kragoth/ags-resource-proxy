@@ -14,6 +14,8 @@ namespace Ags.ResourceProxy.Core {
 
 		List<KeyValuePair<string, string>> GetPortalExchangeTokenFormData(ServerUrl su, string proxyReferrer, string portalCode);
 
+		List<KeyValuePair<string, string>> GetArcGISTokenFormData(ServerUrl su, string proxyReferrer);
+
 		NetworkCredential GetCredentials(ServerUrl serverUrlConfig);
 
 		ServerUrl GetProxyServerUrlConfig(string queryStringUrl);
