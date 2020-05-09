@@ -4,14 +4,14 @@
     <TargetFramework>netcoreapp3.1</TargetFramework>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
-    <PackageLicenseUrl>https://mit-license.org/</PackageLicenseUrl>
-    <PackageProjectUrl>https://github.com/dgwaldo/ags-resource-proxy</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/dgwaldo/ags-resource-proxy</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/kragoth/ags-resource-proxy</RepositoryUrl>
+    <PackageId>EsriArcgis.Proxy.Core</PackageId>
     <PackageTags>ArcGIS Server Proxy, ArcGIS Resource Proxy</PackageTags>
     <Description>.Net Core implementation of a resource proxy for ArcGIS Server.</Description>
-    <Version>1.0.2</Version>
-    <AssemblyVersion>1.0.2.1</AssemblyVersion>
-    <FileVersion>1.0.2.1</FileVersion>
+    <Version>1.0.3</Version>
+    <AssemblyVersion>1.0.3.0</AssemblyVersion>
+    <FileVersion>1.0.3.0</FileVersion>
     <PackageReleaseNotes />
   </PropertyGroup>
 
