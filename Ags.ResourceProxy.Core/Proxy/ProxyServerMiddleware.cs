@@ -91,7 +91,7 @@ namespace Ags.ResourceProxy.Core {
 			JObject o;
 
 			if (!_cache.TryGetValue(tokenCacheKey, out string serverTokenJson) || killCache) {
-				var requestTime = new DateTime();
+				var requestTime = DateTime.UtcNow;
 				// Key not in cache, so get token.
 				serverTokenJson = await GetAppToken(su, clientName);
 				o = JObject.Parse(serverTokenJson);
