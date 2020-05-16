@@ -37,11 +37,11 @@ namespace Ags.ResourceProxy.Core {
 		}
 
 		public async Task<HttpResponseMessage> ForwardRequestToServer(HttpRequest request, string url, string clientName, string token = null) {
-			var proxyMsg = CreateProxyHttpRequest(request, new Uri(url), token);
+			var proxyMsg = await CreateProxyHttpRequest(request, new Uri(url), token);
 			return await HttpClient(clientName).SendAsync(proxyMsg, HttpCompletionOption.ResponseHeadersRead);
 		}
 
-		private static HttpRequestMessage CreateProxyHttpRequest(HttpRequest request, Uri uri, string token = null) {
+		private static async Task<HttpRequestMessage> CreateProxyHttpRequest(HttpRequest request, Uri uri, string token = null) {
 			var requestMessage = new HttpRequestMessage()
 			{
 				RequestUri = uri,
@@ -62,7 +62,7 @@ namespace Ags.ResourceProxy.Core {
 			var body = string.Empty;
 			using (var reader = new StreamReader(request.Body, Encoding.UTF8))
 			{
-				body = reader.ReadToEnd();
+				body = await reader.ReadToEndAsync();
 			}
 
 			var isJson = request.ContentType != null && request.ContentType.Contains(JsonContentType, StringComparison.OrdinalIgnoreCase);

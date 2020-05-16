@@ -7,6 +7,7 @@ using Newtonsoft.Json.Linq;
 using System.Linq;
 using System.Net;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 
 namespace Ags.ResourceProxy.Core {
 
@@ -36,51 +37,76 @@ namespace Ags.ResourceProxy.Core {
 			_cache = memoryCache ?? throw new ArgumentNullException(nameof(memoryCache));
 		}
 
-		public async Task Invoke(HttpContext context) {
-			var endRequest = false;
-
-			if (context.Request.QueryString.HasValue && context.Request.QueryString.ToString().ToLower() == "?ping") {
-				await context.Response.WriteAsync(CreatePingResponse());
-				return;
-			}
-
-			// Note: Referrer is mis-spelled in the HTTP Spec
-			_proxyReferrer = context?.Request?.Headers["referer"];
-			if (_proxyConfigService.IsAllowedReferrer(_proxyReferrer) == false) {
-				CreateErrorResponse(context.Response, $"Referrer {_proxyReferrer} is not allowed.", HttpStatusCode.BadRequest);
-				return;
-			}
-			// Allows request body to be read multiple times, and buffers.
-			context.Request.EnableBuffering();
-
-			var proxiedUrl = context.Request.QueryString.ToString().TrimStart('?');
-
-			// Check if proxy URL is in the list of configured URLs.
-			var serverUrlConfig = _proxyConfigService.GetProxyServerUrlConfig(proxiedUrl);
-
-			HttpResponseMessage response = null;
-
-			if (serverUrlConfig != null) {
-				var isTokenLogin = !String.IsNullOrEmpty(serverUrlConfig?.Username) && !String.IsNullOrEmpty(serverUrlConfig?.tokenUrl);
-				var isAppLogin = !String.IsNullOrEmpty(serverUrlConfig?.ClientId) && !String.IsNullOrEmpty(serverUrlConfig?.ClientSecret);
-				var isUserLogin = !String.IsNullOrEmpty(serverUrlConfig?.Username) && !String.IsNullOrEmpty(serverUrlConfig?.Password);
-				var httpClientName = serverUrlConfig?.Url;
-
-				if (isAppLogin || isTokenLogin) {
-					var serverToken = await CacheTryGetServerToken(serverUrlConfig, httpClientName);
-					response = await _proxyService.ForwardRequestToServer(context.Request, proxiedUrl, httpClientName, serverToken);
-				} else if (isUserLogin) {
-					response = await _proxyService.ForwardRequestToServer(context.Request, proxiedUrl, httpClientName);
+		private void Log(LogLevel level, string message, Exception e = null, object[] args = null)
+		{
+			if (_proxyConfigService.IsLoggingEnabled())
+			{
+				if (e != null)
+				{
+					_proxyConfigService.GetLogger().Log(level, e, message, args);
+				} else
+				{
+					_proxyConfigService.GetLogger().Log(level, message, args);
 				}
-			} else { // No matching url to proxy, bypass and proxy the request.
-				response = await _proxyService.ForwardRequestToServer(context.Request, proxiedUrl, "");
 			}
+		}
 
-			await CopyProxyHttpResponse(context, response);
+		public async Task Invoke(HttpContext context) {
+			try
+			{
+				var endRequest = false;
 
-			endRequest = true;
-			if (!endRequest) {
-				await _next(context);
+				if (context.Request.QueryString.HasValue && context.Request.QueryString.ToString().ToLower() == "?ping") {
+					await context.Response.WriteAsync(CreatePingResponse());
+					return;
+				}
+
+				// Note: Referrer is mis-spelled in the HTTP Spec
+				_proxyReferrer = context?.Request?.Headers["referer"];
+				if (_proxyConfigService.IsAllowedReferrer(_proxyReferrer) == false) {
+					CreateErrorResponse(context.Response, $"Referrer {_proxyReferrer} is not allowed.", HttpStatusCode.BadRequest);
+					return;
+				}
+				// Allows request body to be read multiple times, and buffers.
+				context.Request.EnableBuffering();
+
+				var proxiedUrl = context.Request.QueryString.ToString().TrimStart('?');
+
+				// Check if proxy URL is in the list of configured URLs.
+				var serverUrlConfig = _proxyConfigService.GetProxyServerUrlConfig(proxiedUrl);
+
+				HttpResponseMessage response = null;
+
+				if (serverUrlConfig != null) {
+					var isTokenLogin = !String.IsNullOrEmpty(serverUrlConfig?.Username) && !String.IsNullOrEmpty(serverUrlConfig?.TokenUrl);
+					var isAppLogin = !String.IsNullOrEmpty(serverUrlConfig?.ClientId) && !String.IsNullOrEmpty(serverUrlConfig?.ClientSecret);
+					var isUserLogin = !String.IsNullOrEmpty(serverUrlConfig?.Username) && !String.IsNullOrEmpty(serverUrlConfig?.Password);
+					var httpClientName = serverUrlConfig?.Url;
+
+					if (isAppLogin || isTokenLogin) {
+						Log(LogLevel.Debug, "ArcGIS Proxy: Arcgis Token required");
+						var serverToken = await CacheTryGetServerToken(serverUrlConfig, httpClientName);
+						response = await _proxyService.ForwardRequestToServer(context.Request, proxiedUrl, httpClientName, serverToken);
+					} else if (isUserLogin) {
+						response = await _proxyService.ForwardRequestToServer(context.Request, proxiedUrl, httpClientName);
+					}
+				} else { // No matching url to proxy, bypass and proxy the request.
+					response = await _proxyService.ForwardRequestToServer(context.Request, proxiedUrl, "");
+				}
+
+				await CopyProxyHttpResponse(context, response);
+
+				endRequest = true;
+				if (!endRequest) {
+					await _next(context);
+				}
+			}
+			catch (TaskCanceledException e) {
+				// NOOP: Zooming/panning quickly result in MANY task cancelled exceptions which we do not care about
+				Log(LogLevel.Debug, $"ArcGIS Proxy: Task cancelled", e);
+			} catch(Newtonsoft.Json.JsonReaderException e) {
+				Log(LogLevel.Debug, $"ArcGIS Proxy: Json Parse Error", e);
+				throw;
 			}
 
 		}
@@ -89,14 +115,15 @@ namespace Ags.ResourceProxy.Core {
 
 			var tokenCacheKey = $"token_for_{su.Url}";
 			JObject o;
-
+			Log(LogLevel.Debug, $"ArcGIS Proxy: Token cache key: {tokenCacheKey}");
 			if (!_cache.TryGetValue(tokenCacheKey, out string serverTokenJson) || killCache) {
+				Log(LogLevel.Debug, $"ArcGIS Proxy: No token in cache or token expired - requesting new token");
 				var requestTime = DateTime.UtcNow;
 				// Key not in cache, so get token.
 				serverTokenJson = await GetAppToken(su, clientName);
 				o = JObject.Parse(serverTokenJson);
 
-				if (string.IsNullOrEmpty(su.tokenUrl))
+				if (string.IsNullOrEmpty(su.TokenUrl))
 				{
 					// Set expiration based on value returned with access token
 					_cache.Set(tokenCacheKey, serverTokenJson, TimeSpan.FromSeconds(Convert.ToDouble(o[JsonExpirationKey])));
@@ -107,30 +134,39 @@ namespace Ags.ResourceProxy.Core {
 					var expiry = EpochDate + offset;
 					var timespan = expiry - requestTime;
 					// Set expiration based on value returned with access token
+					Log(LogLevel.Debug, $"ArcGIS Proxy: Setting token expiry to timespan of: {timespan}");
 					_cache.Set(tokenCacheKey, serverTokenJson, timespan);
 				}
 			} else
 			{
+				Log(LogLevel.Debug, $"ArcGIS Proxy: Using cached token: {serverTokenJson}");
 				o = JObject.Parse(serverTokenJson);
 			}
 
-			return string.IsNullOrEmpty(su.tokenUrl) ? (string)o[JsonTokenKey] : (string)o[ArcGisJsonTokenKey];
+			var requestToken = string.IsNullOrEmpty(su.TokenUrl) ? (string)o[JsonTokenKey] : (string)o[ArcGisJsonTokenKey];
+			
+			Log(LogLevel.Debug, $"ArcGIS Proxy: Proxying request with token: {requestToken}");
+
+			return requestToken;
 		}
 
 		private async Task<string> GetAppToken(ServerUrl su, string clientName) {
 
-			if (string.IsNullOrEmpty(su.Oauth2Endpoint) && string.IsNullOrEmpty(su.tokenUrl)) {
+			if (string.IsNullOrEmpty(su.Oauth2Endpoint) && string.IsNullOrEmpty(su.TokenUrl)) {
 				throw new ArgumentNullException("Oauth2Endpoint | TokenUrl");
 			}
 
 			if (string.IsNullOrEmpty(su.Oauth2Endpoint))
 			{
-				var formData = _proxyConfigService.GetArcGISTokenFormData(su, _proxyReferrer ?? su.referer);
+				Log(LogLevel.Debug, $"ArcGIS Proxy: Using arcgis token generation endpoint: {su.TokenUrl}");
+				var formData = _proxyConfigService.GetArcGISTokenFormData(su, _proxyReferrer ?? su.Referer);
 
-				var tokenJson = await _proxyService.RequestTokenJson(su.tokenUrl, formData, clientName);
+				var tokenJson = await _proxyService.RequestTokenJson(su.TokenUrl, formData, clientName);
+				Log(LogLevel.Debug, $"ArcGIS Proxy: Generate token response: {tokenJson}");
 				return tokenJson;
 			} else 
 			{
+				Log(LogLevel.Debug, $"ArcGIS Proxy: Using Oauth2 endpoint");
 				var formData = _proxyConfigService.GetOAuth2FormData(su, _proxyReferrer);
 
 				var tokenJson = await _proxyService.RequestTokenJson(su.Oauth2Endpoint, formData, clientName);
@@ -157,9 +193,14 @@ namespace Ags.ResourceProxy.Core {
 			// Removes the header so it doesn't expect a chunked response.
 			response.Headers.Remove("transfer-encoding");
 
-			using (var responseStream = await responseMessage.Content.ReadAsStreamAsync()) {
+			// try
+			// {
+				using var responseStream = await responseMessage.Content.ReadAsStreamAsync();
 				await responseStream.CopyToAsync(response.Body, context.RequestAborted);
-			}
+			// }
+			// catch (TaskCanceledException) {
+			// 	// NOOP: Zooming/panning quickly result in MANY task cancelled exceptions which we do not care about
+			// }
 		}
 
 		private HttpResponse CreateErrorResponse(HttpResponse httpResponse, string message, HttpStatusCode status) {

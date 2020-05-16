@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -10,6 +11,7 @@ namespace Ags.ResourceProxy.Core {
 
 	public class ProxyConfigService : IProxyConfigService {
 
+		private readonly ILogger _logger;
 		private ProxyConfig _config;
 		private IHostingEnvironment _hostingEnvironment { get; }
 
@@ -25,9 +27,10 @@ namespace Ags.ResourceProxy.Core {
 
 		public string ConfigPath { get; }
 
-		public ProxyConfigService(ProxyConfig config)
+		public ProxyConfigService(ProxyConfig config, ILogger logger = null)
 		{
 			_config = config ?? throw new ArgumentException(nameof(config));
+			_logger = logger;
 		}
 
 		public ProxyConfigService(IHostingEnvironment hostingEnvironment, string configPath) {
@@ -98,6 +101,16 @@ namespace Ags.ResourceProxy.Core {
 			}
 			var uriAuthority = new Uri(referer).GetLeftPart(UriPartial.Authority);
 			return Config.AllowedReferrers.Any(r => r.ToLower() == uriAuthority.ToLower());
+		}
+
+		public bool IsLoggingEnabled()
+		{
+			return Config.Debug && null != _logger;
+		}
+
+		public ILogger GetLogger()
+		{
+			return _logger;
 		}
 
 	}

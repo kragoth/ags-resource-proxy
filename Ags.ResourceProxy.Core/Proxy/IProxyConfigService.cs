@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using Microsoft.Extensions.Logging;
+using System.Collections.Generic;
 using System.Net;
 
 namespace Ags.ResourceProxy.Core {
@@ -19,5 +20,9 @@ namespace Ags.ResourceProxy.Core {
 		NetworkCredential GetCredentials(ServerUrl serverUrlConfig);
 
 		ServerUrl GetProxyServerUrlConfig(string queryStringUrl);
+
+		bool IsLoggingEnabled();
+
+		ILogger GetLogger();
 	}
 }
